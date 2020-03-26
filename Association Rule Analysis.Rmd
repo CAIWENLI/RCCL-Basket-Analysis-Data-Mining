@@ -1,0 +1,797 @@
+---
+title: "Association Rule Analysis"
+author: "Caiwen Li"
+date: "12/11/2019"
+output: html_document
+---
+
+```{r Setup, include=FALSE}
+rm(list=ls())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## First Let's loading all the packages we will need to use for this analysis
+```{r Load all packages}
+library(RPostgreSQL)
+library(dplyr)
+library(dbplyr)
+library(data.table)
+library(lubridate)
+library(reshape2)
+library(stringr)
+library(tidyverse)
+library(readxl)
+library(knitr)
+library(ggplot2)
+library(arules)
+library(arulesViz)
+```
+
+## Connect to the Oracle Database 
+# Please hide the ps by using 
+```{r Oracle Connection}
+options(java.parameters = "-Xmx8g")
+library("RJDBC")
+library(RJDBC)
+drv <- JDBC("oracle.jdbc.OracleDriver",classPath="C:/users/7005773/Downloads/ojdbc6.jar")
+con.oracle <- dbConnect(drv, "jdbc:oracle:thin:@//dmmktgp_exa.rccl.com:1689/DMMKTGP.RCCL.COM", "DIGITALBI","^!tRGAD!gk*VVDn4T69h3P2XX%")
+```
+
+# First Let's getting all the data for Website
+```{r Load the data from dream query - Web}
+pcp.tran.level.web <- paste("SELECT T.SHIP_CODE,
+       T.SAIL_DATE,
+       TO_CHAR(T.PASSENGER_ID) PASSENGER_ID,
+       TO_CHAR(T.BOOKING_ID) AS CRUISE_BOOKING_ID,
+       CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) AS THE_KEY_T,
+       T.PRODUCT_ID,
+       T.ASR_BOOKING_ID,
+       T.ORDER_ID,
+       T.ADJUSTED_OWNER_DESC,
+       T.COMPONENT_NAME,
+       T.COMPONENT_CODE,
+       T.ASR_PRODUCT_BOOKING_DTM,
+       T.CHANNEL,
+       T.OWNER_DESC,
+       T.BOOKING_STATUS_NAME,
+       T.TOTAL_REVENUE_USD,
+       T.TOUR_DURATION_HR,
+       T.AMT_GUEST_PAID_BKC,
+       T1.BOOKING_ID,
+       T1.BRAND,
+       T1.RDSS_PRODUCT_CODE,
+       T1.META_PRODUCT_CODE,
+       T1.BOOKING_TYPE,
+       T1.NET_TICKET_REVENUE_USD,
+       CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) AS THE_KEY_T1,
+       T1.SAIL_NIGHTS,
+       T1.BOOKING_STATUS,
+       T1.PAX_AGE,
+       T1.PAX_CITIZENSHIP,
+       T1.PAX_DOCUMENTATION_LANGUAGE,
+       T1.PAX_GENDER_CODE,
+       T1.RATE_CAT_CLASS,
+       CASE WHEN T1.PAX_LOYALTY_NUMBER IS NOT NULL THEN 1 ELSE 0 END AS LOYALTY_STATUS
+FROM DIGITALBI.DREAM_PCP_ASR_DETAIL T
+LEFT JOIN DIGITALBI.DREAM_CRUISE_OBJECT T1
+ON CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) = CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) 
+WHERE T.TOTAL_REVENUE_USD > 0
+      AND T.ASR_PRODUCT_BOOKING_DTM >= TO_DATE('2018-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.ASR_PRODUCT_BOOKING_DTM <= TO_DATE('2019-12-31 23:59:59', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.CHANNEL IN 'Web'
+      AND T.BOOKING_STATUS_NAME IN 'Booked'", sep="")
+
+pcp.tran.level.web.query <- dbGetQuery(con.oracle, pcp.tran.level.web)
+
+pcp.tran.level.web.query$THE_KEY_T <- NULL
+pcp.tran.level.web.query$THE_KEY_T1 <- NULL
+pcp.tran.level.web.query$SHIP_CODE <- NULL
+pcp.tran.level.web.query$SAIL_DATE <- as.Date(pcp.tran.level.web.query$SAIL_DATE)
+
+```
+
+# Then Select the dat from Call Center
+```{r Load the data from dream query - Call Center}
+pcp.tran.level.cc <- paste("SELECT T.SHIP_CODE,
+       T.SAIL_DATE,
+       TO_CHAR(T.PASSENGER_ID) PASSENGER_ID,
+       TO_CHAR(T.BOOKING_ID) AS CRUISE_BOOKING_ID,
+       CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) AS THE_KEY_T,
+       T.PRODUCT_ID,
+       T.ASR_BOOKING_ID,
+       T.ORDER_ID,
+       T.ADJUSTED_OWNER_DESC,
+       T.COMPONENT_NAME,
+       T.COMPONENT_CODE,
+       T.ASR_PRODUCT_BOOKING_DTM,
+       T.CHANNEL,
+       T.OWNER_DESC,
+       T.BOOKING_STATUS_NAME,
+       T.TOTAL_REVENUE_USD,
+       T.TOUR_DURATION_HR,
+       T.AMT_GUEST_PAID_BKC,
+       T1.BOOKING_ID,
+       T1.BRAND,
+       T1.RDSS_PRODUCT_CODE,
+       T1.META_PRODUCT_CODE,
+       T1.BOOKING_TYPE,
+       T1.NET_TICKET_REVENUE_USD,
+       CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) AS THE_KEY_T1,
+       T1.SAIL_NIGHTS,
+       T1.BOOKING_STATUS,
+       T1.PAX_AGE,
+       T1.PAX_CITIZENSHIP,
+       T1.PAX_DOCUMENTATION_LANGUAGE,
+       T1.PAX_GENDER_CODE,
+       T1.RATE_CAT_CLASS,
+       CASE WHEN T1.PAX_LOYALTY_NUMBER IS NOT NULL THEN 1 ELSE 0 END AS LOYALTY_STATUS
+FROM DIGITALBI.DREAM_PCP_ASR_DETAIL T
+LEFT JOIN DIGITALBI.DREAM_CRUISE_OBJECT T1
+ON CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) = CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) 
+WHERE T.TOTAL_REVENUE_USD > 0
+      AND T.ASR_PRODUCT_BOOKING_DTM >= TO_DATE('2018-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.ASR_PRODUCT_BOOKING_DTM <= TO_DATE('2019-12-31 23:59:59', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.CHANNEL IN 'Call Center'
+      AND T.BOOKING_STATUS_NAME IN 'Booked'", sep="")
+
+pcp.tran.level.cc.query <- dbGetQuery(con.oracle, pcp.tran.level.cc)
+
+pcp.tran.level.cc.query$THE_KEY_T <- NULL
+pcp.tran.level.cc.query$THE_KEY_T1 <- NULL
+```
+
+# Also, Onboard ShoreX 
+```{r Load the data from dream query - Onboard}
+pcp.tran.level.onboard <- paste("SELECT T.SHIP_CODE,
+       T.SAIL_DATE,
+       TO_CHAR(T.PASSENGER_ID) PASSENGER_ID,
+       TO_CHAR(T.BOOKING_ID) AS CRUISE_BOOKING_ID,
+       CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) AS THE_KEY_T,
+       T.PRODUCT_ID,
+       T.ASR_BOOKING_ID,
+       T.ORDER_ID,
+       T.ADJUSTED_OWNER_DESC,
+       T.COMPONENT_NAME,
+       T.COMPONENT_CODE,
+       T.ASR_PRODUCT_BOOKING_DTM,
+       T.CHANNEL,
+       T.OWNER_DESC,
+       T.BOOKING_STATUS_NAME,
+       T.TOTAL_REVENUE_USD,
+       T.TOUR_DURATION_HR,
+       T.AMT_GUEST_PAID_BKC,
+       T1.BOOKING_ID,
+       T1.BRAND,
+       T1.RDSS_PRODUCT_CODE,
+       T1.META_PRODUCT_CODE,
+       T1.BOOKING_TYPE,
+       T1.NET_TICKET_REVENUE_USD,
+       CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) AS THE_KEY_T1,
+       T1.SAIL_NIGHTS,
+       T1.BOOKING_STATUS,
+       T1.PAX_AGE,
+       T1.PAX_CITIZENSHIP,
+       T1.PAX_DOCUMENTATION_LANGUAGE,
+       T1.PAX_GENDER_CODE,
+       T1.RATE_CAT_CLASS,
+       CASE WHEN T1.PAX_LOYALTY_NUMBER IS NOT NULL THEN 1 ELSE 0 END AS LOYALTY_STATUS
+FROM DIGITALBI.DREAM_PCP_ASR_DETAIL T
+LEFT JOIN DIGITALBI.DREAM_CRUISE_OBJECT T1
+ON CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) = CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) 
+WHERE T.TOTAL_REVENUE_USD > 0
+      AND T.ASR_PRODUCT_BOOKING_DTM >= TO_DATE('2018-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.ASR_PRODUCT_BOOKING_DTM <= TO_DATE('2019-12-31 23:59:59', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.CHANNEL IN 'Onboard'
+      AND T.BOOKING_STATUS_NAME IN 'Booked'", sep="")
+
+pcp.tran.level.onboard.query <- dbGetQuery(con.oracle, pcp.tran.level.onboard)
+
+pcp.tran.level.onboard.query$THE_KEY_T <- NULL
+pcp.tran.level.onboard.query$THE_KEY_T1 <- NULL
+```
+
+## Before we look into all the basket rules, let's start with Allure Eastern Caribbean, select all the data with no package name & with package name logtic
+```{r Market basket analysis - association Rules - testing (One RDSS One Ship - All Channels) - Data Prepare}
+pcp.tran.level.al <- paste("SELECT T.SHIP_CODE,
+       T.SAIL_DATE,
+       TO_CHAR(T.PASSENGER_ID) PASSENGER_ID,
+       TO_CHAR(T.BOOKING_ID) AS CRUISE_BOOKING_ID,
+       CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) AS THE_KEY_T,
+       T.PRODUCT_ID,
+       T.ASR_BOOKING_ID,
+       T.ORDER_ID,
+       T.ADJUSTED_OWNER_DESC,
+       T.COMPONENT_NAME,
+       T.COMPONENT_CODE,
+       T.ASR_PRODUCT_BOOKING_DTM,
+       T.CHANNEL,
+       T.OWNER_DESC,
+       T.BOOKING_STATUS_NAME,
+       T.TOTAL_REVENUE_USD,
+       T.TOUR_DURATION_HR,
+       T.AMT_GUEST_PAID_BKC,
+       T1.BOOKING_ID,
+       T1.BRAND,
+       T1.RDSS_PRODUCT_CODE,
+       T1.META_PRODUCT_CODE,
+       T1.BOOKING_TYPE,
+       T1.NET_TICKET_REVENUE_USD,
+       CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) AS THE_KEY_T1,
+       T1.SAIL_NIGHTS,
+       T1.BOOKING_STATUS,
+       T1.PAX_AGE,
+       T1.PAX_CITIZENSHIP,
+       T1.PAX_DOCUMENTATION_LANGUAGE,
+       T1.PAX_GENDER_CODE,
+       T1.RATE_CAT_CLASS,
+       CASE WHEN T1.PAX_LOYALTY_NUMBER IS NOT NULL THEN 1 ELSE 0 END AS LOYALTY_STATUS
+FROM DIGITALBI.DREAM_PCP_ASR_DETAIL T
+LEFT JOIN DIGITALBI.DREAM_CRUISE_OBJECT T1
+ON CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) = CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) 
+WHERE T.TOTAL_REVENUE_USD > 0
+      AND T.PACKAGE_NAME IS NULL
+      AND T.ASR_PRODUCT_BOOKING_DTM >= TO_DATE('2018-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.ASR_PRODUCT_BOOKING_DTM <= TO_DATE('2019-12-31 23:59:59', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.CHANNEL NOT IN 'EXCALIBUR_RESPONSIVE_WEB'
+      AND T.BOOKING_STATUS_NAME IN 'Booked'
+      AND T.SHIP_CODE IN 'AL'", sep="")
+
+pcp.tran.level.al.query <- dbGetQuery(con.oracle, pcp.tran.level.al)
+
+## Package Name
+pcp.tran.level.al.pack <- paste("SELECT T.SHIP_CODE,
+       T.SAIL_DATE,
+       TO_CHAR(T.PASSENGER_ID) PASSENGER_ID,
+       TO_CHAR(T.BOOKING_ID) AS CRUISE_BOOKING_ID,
+       CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) AS THE_KEY_T,
+       T.PRODUCT_ID,
+       T.ASR_BOOKING_ID,
+       T.ORDER_ID,
+       T.ADJUSTED_OWNER_DESC,
+       T.COMPONENT_NAME,
+       T.COMPONENT_CODE,
+       T.PACKAGE_NAME,
+       T.PACKAGE_CODE,
+       T.ASR_PRODUCT_BOOKING_DTM,
+       T.CHANNEL,
+       T.OWNER_DESC,
+       T.BOOKING_STATUS_NAME,
+       T.TOTAL_REVENUE_USD,
+       T.TOUR_DURATION_HR,
+       T.AMT_GUEST_PAID_BKC,
+       T1.BOOKING_ID,
+       T1.BRAND,
+       T1.RDSS_PRODUCT_CODE,
+       T1.META_PRODUCT_CODE,
+       T1.BOOKING_TYPE,
+       T1.NET_TICKET_REVENUE_USD,
+       CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) AS THE_KEY_T1,
+       T1.SAIL_NIGHTS,
+       T1.BOOKING_STATUS,
+       T1.PAX_AGE,
+       T1.PAX_CITIZENSHIP,
+       T1.PAX_DOCUMENTATION_LANGUAGE,
+       T1.PAX_GENDER_CODE,
+       T1.RATE_CAT_CLASS,
+       CASE WHEN T1.PAX_LOYALTY_NUMBER IS NOT NULL THEN 1 ELSE 0 END AS LOYALTY_STATUS
+FROM DIGITALBI.DREAM_PCP_ASR_DETAIL T
+LEFT JOIN DIGITALBI.DREAM_CRUISE_OBJECT T1
+ON CONCAT(CONCAT(CONCAT(T1.BOOKING_ID, T1.PASSENGER_ID), T1.SAIL_DATE), T1.SHIP_CODE) = CONCAT(CONCAT(CONCAT(T.BOOKING_ID, T.PASSENGER_ID), T.SAIL_DATE), T.SHIP_CODE) 
+WHERE T.TOTAL_REVENUE_USD > 0
+      AND T.PACKAGE_NAME IS NOT NULL
+      AND T.ASR_PRODUCT_BOOKING_DTM >= TO_DATE('2018-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.ASR_PRODUCT_BOOKING_DTM <= TO_DATE('2019-12-31 23:59:59', 'YYYY-MM-DD HH24:MI:SS')
+      AND T.CHANNEL NOT IN 'EXCALIBUR_RESPONSIVE_WEB'
+      AND T.BOOKING_STATUS_NAME IN 'Booked'
+      AND T.SHIP_CODE IN 'AL'", sep="")
+
+pcp.tran.level.al.pack.query <- dbGetQuery(con.oracle, pcp.tran.level.al.pack)
+
+
+# Clean up unnecessary data
+pcp.tran.level.al.query$THE_KEY_T <- NULL
+pcp.tran.level.al.query$THE_KEY_T1 <- NULL
+pcp.tran.level.al.query$SHIP_CODE <- NULL
+pcp.tran.level.al.query$SAIL_DATE <- as.Date(pcp.tran.level.al.query$SAIL_DATE)
+
+
+# 42k transactions have no RDSS code
+rdss.code <- pcp.tran.level.al.query %>% 
+  group_by(RDSS_PRODUCT_CODE) %>% 
+  summarise(nrow = n_distinct(ASR_BOOKING_ID))
+
+# No Kiosk for Allure
+channel <- pcp.tran.level.al.query %>% 
+  group_by(CHANNEL) %>% 
+  summarise(nrow = n_distinct(ASR_BOOKING_ID))
+```
+
+```{r Market basket analysis - association Rules - testing (One RDSS One Ship - All Channels) - Product ID}
+cus.level.data <- pcp.tran.level.al.query %>% 
+  select(PASSENGER_ID, PRODUCT_ID, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBEST")
+
+cus.level.data$ASR_PRODUCT_BOOKING_DTM <- as.Date(cus.level.data$ASR_PRODUCT_BOOKING_DTM)
+
+if(sessionInfo()['basePkgs']=="dplyr" | sessionInfo()['otherPkgs']=="dplyr"){
+  detach(package:dplyr, unload=TRUE)
+}
+
+library(plyr)
+
+cus <- ddply(cus.level.data, c("PASSENGER_ID", "ASR_PRODUCT_BOOKING_DTM"), function(df1)paste(df1$PRODUCT_ID, collapse = ","))
+
+max.cart.size <- max(sapply((str_extract_all(cus$V1, pattern = ",")), length))
+
+all.cus <- nrow(cus) 
+
+basket <- cus[,]
+
+basket$ASR_PRODUCT_BOOKING_DTM <- NULL
+basket$PASSENGER_ID   <- NULL
+
+colnames(basket) <- c("itemList")
+
+basket.filter <- dplyr::filter(basket, grepl(",",itemList))
+
+write.csv(basket.filter,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", quote = FALSE, row.names = TRUE)
+
+library(arules)
+
+# Convert csv file to basket format
+txn = read.transactions(file = "C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", rm.duplicates= FALSE, format = "basket",sep = ",", cols = 1);
+
+# Run apriori algorithm
+basket_rules <- apriori(txn,parameter = list(minlen = 2, sup = 0.001, conf = 0.1, target = "rules"))
+
+# Check if tm is attched; if yes then detach
+if(sessionInfo()['basePkgs'] =="tm" | sessionInfo()['otherPkgs']=="tm"){
+  detach(package:sentiment, unload=TRUE)
+  detach(package:tm, unload=TRUE)
+}
+
+# Convert to datframe and view; optional
+df_basket <- as(basket_rules,"data.frame")
+df_basket$confidence <- df_basket$confidence * 100
+
+write.csv(df_basket,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/df_basket_alwebeast.csv", quote = FALSE, row.names = TRUE)
+
+```
+
+```{r Market basket analysis - association Rules - testing (One RDSS One Ship - All Channels) - Component Code}
+cus.level.data <- pcp.tran.level.al.query %>% 
+  select(PASSENGER_ID, COMPONENT_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBEST")
+
+cus.level.data$ASR_PRODUCT_BOOKING_DTM <- as.Date(cus.level.data$ASR_PRODUCT_BOOKING_DTM)
+
+if(sessionInfo()['basePkgs']=="dplyr" | sessionInfo()['otherPkgs']=="dplyr"){
+  detach(package:dplyr, unload=TRUE)
+}
+
+library(plyr)
+
+cus <- ddply(cus.level.data, c("PASSENGER_ID", "ASR_PRODUCT_BOOKING_DTM"), function(df1)paste(df1$COMPONENT_CODE, collapse = ","))
+
+max.cart.size <- max(sapply((str_extract_all(cus$V1, pattern = ",")), length))
+
+all.cus <- nrow(cus) 
+
+basket <- cus[,]
+
+basket$ASR_PRODUCT_BOOKING_DTM <- NULL
+basket$PASSENGER_ID   <- NULL
+
+colnames(basket) <- c("itemList")
+
+basket.filter <- dplyr::filter(basket, grepl(",",itemList))
+
+write.csv(basket.filter,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", quote = FALSE, row.names = TRUE)
+
+library(arules)
+
+# Convert csv file to basket format
+txn = read.transactions(file = "C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", rm.duplicates= FALSE, format = "basket",sep = ",", cols = 1);
+
+# Run apriori algorithm
+basket_rules <- apriori(txn,parameter = list(minlen = 2, sup = 0.001, conf = 0.05, target = "rules"))
+
+# Check if tm is attched; if yes then detach
+if(sessionInfo()['basePkgs'] =="tm" | sessionInfo()['otherPkgs']=="tm"){
+  detach(package:sentiment, unload=TRUE)
+  detach(package:tm, unload=TRUE)
+}
+
+# Convert to datframe and view; optional
+df_basket <- as(basket_rules,"data.frame")
+df_basket$confidence <- df_basket$confidence * 100
+df_basket$expected.confidence <- df_basket$confidence/df_basket$lift
+
+library(sparklyr)
+library(dplyr)
+sc <- spark_connect(master = "local")
+
+write.csv(df_basket,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/df_basket_aleast_comp_code.csv", quote = FALSE, row.names = TRUE)
+```
+
+```{r Market basket analysis - association Rules - testing (One RDSS One Ship - All Channels) - Component Code & Channel}
+cus.level.data <- pcp.tran.level.al.query %>% 
+  select(PASSENGER_ID, COMPONENT_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBEST",
+         !CHANNEL %in% "Mobile App")
+
+colnames(cus.level.data) <- c("PASSENGER_ID", "PRODUCT_CODE", "ASR_PRODUCT_BOOKING_DTM", "RDSS_PROD_CODE", "CHANNEL")
+cus.level.data.pack <- pcp.tran.level.al.pack.query %>% 
+  select(PASSENGER_ID, PACKAGE_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  group_by(PASSENGER_ID, PACKAGE_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  summarise(NROW = n()) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBEST",
+         !CHANNEL %in% "Mobile App")
+cus.level.data.pack <- cus.level.data.pack[,c(1:5)]
+
+colnames(cus.level.data.pack) <- c("PASSENGER_ID", "PRODUCT_CODE", "ASR_PRODUCT_BOOKING_DTM", "RDSS_PROD_CODE", "CHANNEL")
+
+cus.level.data <- as.data.frame(cus.level.data)
+cus.level.data.pack <- as.data.frame(cus.level.data.pack)
+
+cus.data <- rbind(cus.level.data.pack, cus.level.data)
+
+cus.data$ASR_PRODUCT_BOOKING_DTM <- as.Date(cus.data$ASR_PRODUCT_BOOKING_DTM)
+
+cus.data$PROD_CHANNEL <- paste0(cus.data$PRODUCT_CODE, sep = "_", cus.data$CHANNEL)
+
+if(sessionInfo()['basePkgs']=="dplyr" | sessionInfo()['otherPkgs']=="dplyr"){
+  detach(package:dplyr, unload=TRUE)
+}
+
+library(plyr)
+
+cus <- ddply(cus.data, c("PASSENGER_ID", "ASR_PRODUCT_BOOKING_DTM"), function(df1)paste(df1$PROD_CHANNEL, collapse = ","))
+
+max.cart.size <- max(sapply((str_extract_all(cus$V1, pattern = ",")), length))
+
+all.cus <- nrow(cus) 
+
+basket <- cus[,]
+
+basket$ASR_PRODUCT_BOOKING_DTM <- NULL
+basket$PASSENGER_ID   <- NULL
+
+colnames(basket) <- c("itemList")
+
+basket.filter <- dplyr::filter(basket, grepl(",",itemList))
+
+write.csv(basket.filter,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", quote = FALSE, row.names = TRUE)
+
+library(arules)
+
+# Convert csv file to basket format
+txn = read.transactions(file = "C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", rm.duplicates= FALSE, format = "basket",sep = ",", cols = 1);
+
+# Run apriori algorithm
+basket_rules <- apriori(txn,parameter = list(minlen = 2, sup = 0.001, conf = 0.05, target = "rules"))
+
+# Check if tm is attched; if yes then detach
+if(sessionInfo()['basePkgs'] =="tm" | sessionInfo()['otherPkgs']=="tm"){
+  detach(package:sentiment, unload=TRUE)
+  detach(package:tm, unload=TRUE)
+}
+
+# Convert to datframe and view; optional
+df_basket <- as(basket_rules,"data.frame")
+df_basket$confidence <- df_basket$confidence * 100
+df_basket$expected.confidence <- df_basket$confidence/df_basket$lift
+
+df_basket$rules <- gsub("_", " ",df_basket$rules)
+df_basket$rules <- gsub(",", " ",df_basket$rules)
+df_basket$rules <- gsub('Call Center','CallCenter',df_basket$rules) 
+df_basket$rules <- gsub("[[:punct:]]", "", df_basket$rules)
+df_basket$rules <- gsub(' +',' ',df_basket$rules) 
+
+df_basket <- df_basket %>%  separate(rules, into = c("Rule 1", "Channel 1", "Rule 2", "Channel 2", "Rule 3", "Channel 3"), sep = " ", extra = "drop")
+
+tbl_vars(pcp.tran.level.al.query)
+prod_name <- pcp.tran.level.al.query %>% 
+  select(COMPONENT_CODE, COMPONENT_NAME) %>% 
+  group_by(COMPONENT_CODE, COMPONENT_NAME) %>% 
+  summarise(NROW = n())
+
+prod_name$COMPONENT_NAME <- gsub("[[:punct:]]", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub("[][!#$%()*,.:;<=>@^_`|~.{}]", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub("[[:digit:]]+", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- lapply(prod_name$COMPONENT_NAME, toupper)
+prod_name$COMPONENT_NAME <- trimws(prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub(' +',' ',prod_name$COMPONENT_NAME) 
+
+prod_name_pack <- pcp.tran.level.al.pack.query %>% 
+  select(PACKAGE_CODE, COMPONENT_NAME) %>% 
+  group_by(PACKAGE_CODE, COMPONENT_NAME) %>% 
+  summarise(NROW = n())
+
+prod_name_pack$COMPONENT_NAME <- gsub("[[:punct:]]", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- gsub("[][!#$%()*,.:;<=>@^_`|~.{}]", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- gsub("[[:digit:]]+", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- lapply(prod_name_pack$COMPONENT_NAME, toupper)
+prod_name_pack$COMPONENT_NAME <- gsub(' +',' ',prod_name_pack$COMPONENT_NAME) 
+prod_name_pack$COMPONENT_NAME <- trimws(prod_name_pack$COMPONENT_NAME)
+
+prod_name_pack <- prod_name_pack[,c(1,2)]
+prod_name <- prod_name[,c(1,2)]
+colnames(prod_name_pack) <- c("PROD_CODE", "PROD_NAME")
+colnames(prod_name) <- c("PROD_CODE", "PROD_NAME")
+
+prod_name_pack <- as.data.frame(prod_name_pack)
+prod_name <- as.data.frame(prod_name)
+prod_name_detail <- rbind(prod_name_pack, prod_name)
+
+df_rules<- df_basket %>% 
+  left_join(prod_name_detail, by = c("Rule 1"= "PROD_CODE"))
+  
+df_rules<- df_rules %>% 
+  left_join(prod_name_detail, by = c("Rule 2"= "PROD_CODE"))
+
+df_rules<- df_rules %>% 
+  left_join(prod_name_detail, by = c("Rule 3"= "PROD_CODE"))
+
+tbl_vars(df_rules)
+
+colnames(df_rules) <- c("PROD_CODE.A", "CHANNEL.A", "PROD_CODE.B", "CHANNEL.B", "PROD_CODE.C", "CHANNEL.C", "SUPPORT", "CONFIDENCE", "LIFT", "COUNT_TRANS", "EXPECTED_CONFIDENCE", "PROD_NAME.A", "PROD_NAME.B", "PROD_NAME.C")
+
+
+write.csv(df_rules,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/df_rules_allchannel_prod-pack_east.csv", quote = FALSE, row.names = TRUE)
+```
+
+```{r Market basket analysis - association Rules - testing (One RDSS One Ship - All Channels) - Component Code & Channel - App}
+cus.level.data <- pcp.tran.level.al.query %>% 
+  select(PASSENGER_ID, COMPONENT_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBEST",
+         CHANNEL %in% "Mobile App")
+
+colnames(cus.level.data) <- c("PASSENGER_ID", "PRODUCT_CODE", "ASR_PRODUCT_BOOKING_DTM", "RDSS_PROD_CODE", "CHANNEL")
+cus.level.data.pack <- pcp.tran.level.al.pack.query %>% 
+  select(PASSENGER_ID, PACKAGE_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  group_by(PASSENGER_ID, PACKAGE_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  summarise(NROW = n()) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBEST",
+         CHANNEL %in% "Mobile App")
+cus.level.data.pack <- cus.level.data.pack[,c(1:5)]
+
+colnames(cus.level.data.pack) <- c("PASSENGER_ID", "PRODUCT_CODE", "ASR_PRODUCT_BOOKING_DTM", "RDSS_PROD_CODE", "CHANNEL")
+
+cus.level.data <- as.data.frame(cus.level.data)
+cus.level.data.pack <- as.data.frame(cus.level.data.pack)
+
+cus.data <- rbind(cus.level.data.pack, cus.level.data)
+
+cus.data$ASR_PRODUCT_BOOKING_DTM <- as.Date(cus.data$ASR_PRODUCT_BOOKING_DTM)
+
+cus.data$PROD_CHANNEL <- paste0(cus.data$PRODUCT_CODE, sep = "_", cus.data$CHANNEL)
+
+if(sessionInfo()['basePkgs']=="dplyr" | sessionInfo()['otherPkgs']=="dplyr"){
+  detach(package:dplyr, unload=TRUE)
+}
+
+library(plyr)
+
+cus <- ddply(cus.data, c("PASSENGER_ID", "ASR_PRODUCT_BOOKING_DTM"), function(df1)paste(df1$PROD_CHANNEL, collapse = ","))
+
+max.cart.size <- max(sapply((str_extract_all(cus$V1, pattern = ",")), length))
+
+all.cus <- nrow(cus) 
+
+basket <- cus[,]
+
+basket$ASR_PRODUCT_BOOKING_DTM <- NULL
+basket$PASSENGER_ID   <- NULL
+
+colnames(basket) <- c("itemList")
+
+basket.filter <- dplyr::filter(basket, grepl(",",itemList))
+
+write.csv(basket.filter,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", quote = FALSE, row.names = TRUE)
+
+library(arules)
+
+# Convert csv file to basket format
+txn = read.transactions(file = "C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", rm.duplicates= FALSE, format = "basket",sep = ",", cols = 1);
+
+# Run apriori algorithm
+basket_rules <- apriori(txn,parameter = list(minlen = 2, sup = 0.001, conf = 0.05, target = "rules"))
+
+# Check if tm is attched; if yes then detach
+if(sessionInfo()['basePkgs'] =="tm" | sessionInfo()['otherPkgs']=="tm"){
+  detach(package:sentiment, unload=TRUE)
+  detach(package:tm, unload=TRUE)
+}
+
+# Convert to datframe and view; optional
+df_basket <- as(basket_rules,"data.frame")
+df_basket$confidence <- df_basket$confidence * 100
+df_basket$expected.confidence <- df_basket$confidence/df_basket$lift
+
+df_basket$rules <- gsub("_", " ",df_basket$rules)
+df_basket$rules <- gsub(",", " ",df_basket$rules)
+df_basket$rules <- gsub('Mobile App','MobileApp',df_basket$rules) 
+df_basket$rules <- gsub("[[:punct:]]", "", df_basket$rules)
+df_basket$rules <- gsub(' +',' ',df_basket$rules) 
+
+df_basket <- df_basket %>%  separate(rules, into = c("Rule 1", "Channel 1", "Rule 2", "Channel 2", "Rule 3", "Channel 3"), sep = " ", extra = "drop")
+
+tbl_vars(pcp.tran.level.al.query)
+prod_name <- pcp.tran.level.al.query %>% 
+  select(COMPONENT_CODE, COMPONENT_NAME) %>% 
+  group_by(COMPONENT_CODE, COMPONENT_NAME) %>% 
+  summarise(NROW = n())
+
+prod_name$COMPONENT_NAME <- gsub("[[:punct:]]", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub("[][!#$%()*,.:;<=>@^_`|~.{}]", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub("[[:digit:]]+", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- lapply(prod_name$COMPONENT_NAME, toupper)
+prod_name$COMPONENT_NAME <- trimws(prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub(' +',' ',prod_name$COMPONENT_NAME) 
+
+prod_name_pack <- pcp.tran.level.al.pack.query %>% 
+  select(PACKAGE_CODE, COMPONENT_NAME) %>% 
+  group_by(PACKAGE_CODE, COMPONENT_NAME) %>% 
+  summarise(NROW = n())
+
+prod_name_pack$COMPONENT_NAME <- gsub("[[:punct:]]", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- gsub("[][!#$%()*,.:;<=>@^_`|~.{}]", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- gsub("[[:digit:]]+", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- lapply(prod_name_pack$COMPONENT_NAME, toupper)
+prod_name_pack$COMPONENT_NAME <- gsub(' +',' ',prod_name_pack$COMPONENT_NAME) 
+prod_name_pack$COMPONENT_NAME <- trimws(prod_name_pack$COMPONENT_NAME)
+
+prod_name_pack <- prod_name_pack[,c(1,2)]
+prod_name <- prod_name[,c(1,2)]
+colnames(prod_name_pack) <- c("PROD_CODE", "PROD_NAME")
+colnames(prod_name) <- c("PROD_CODE", "PROD_NAME")
+
+prod_name_pack <- as.data.frame(prod_name_pack)
+prod_name <- as.data.frame(prod_name)
+prod_name_detail <- rbind(prod_name_pack, prod_name)
+
+df_rules<- df_basket %>% 
+  left_join(prod_name_detail, by = c("Rule 1"= "PROD_CODE"))
+  
+df_rules<- df_rules %>% 
+  left_join(prod_name_detail, by = c("Rule 2"= "PROD_CODE"))
+
+df_rules<- df_rules %>% 
+  left_join(prod_name_detail, by = c("Rule 3"= "PROD_CODE"))
+
+tbl_vars(df_rules)
+
+colnames(df_rules) <- c("PROD_CODE.A", "CHANNEL.A", "PROD_CODE.B", "CHANNEL.B", "PROD_CODE.C", "CHANNEL.C", "SUPPORT", "CONFIDENCE", "LIFT", "COUNT_TRANS", "EXPECTED_CONFIDENCE", "PROD_NAME.A", "PROD_NAME.B", "PROD_NAME.C")
+
+
+write.csv(df_rules,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/df_rules_app_prod-pack.csv", quote = FALSE, row.names = TRUE)
+```
+
+```{r}
+cus.level.data <- pcp.tran.level.al.query %>% 
+  select(PASSENGER_ID, COMPONENT_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBWST",
+         !CHANNEL %in% "Mobile App")
+
+colnames(cus.level.data) <- c("PASSENGER_ID", "PRODUCT_CODE", "ASR_PRODUCT_BOOKING_DTM", "RDSS_PROD_CODE", "CHANNEL")
+cus.level.data.pack <- pcp.tran.level.al.pack.query %>% 
+  select(PASSENGER_ID, PACKAGE_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  group_by(PASSENGER_ID, PACKAGE_CODE, ASR_PRODUCT_BOOKING_DTM, RDSS_PRODUCT_CODE, CHANNEL) %>% 
+  summarise(NROW = n()) %>% 
+  filter(RDSS_PRODUCT_CODE %in% "CARIBWST",
+         !CHANNEL %in% "Mobile App")
+cus.level.data.pack <- cus.level.data.pack[,c(1:5)]
+
+colnames(cus.level.data.pack) <- c("PASSENGER_ID", "PRODUCT_CODE", "ASR_PRODUCT_BOOKING_DTM", "RDSS_PROD_CODE", "CHANNEL")
+
+cus.level.data <- as.data.frame(cus.level.data)
+cus.level.data.pack <- as.data.frame(cus.level.data.pack)
+
+cus.data <- rbind(cus.level.data.pack, cus.level.data)
+
+cus.data$ASR_PRODUCT_BOOKING_DTM <- as.Date(cus.data$ASR_PRODUCT_BOOKING_DTM)
+
+cus.data$PROD_CHANNEL <- paste0(cus.data$PRODUCT_CODE, sep = "_", cus.data$CHANNEL)
+
+if(sessionInfo()['basePkgs']=="dplyr" | sessionInfo()['otherPkgs']=="dplyr"){
+  detach(package:dplyr, unload=TRUE)
+}
+
+library(plyr)
+
+cus <- ddply(cus.data, c("PASSENGER_ID", "ASR_PRODUCT_BOOKING_DTM"), function(df1)paste(df1$PROD_CHANNEL, collapse = ","))
+
+max.cart.size <- max(sapply((str_extract_all(cus$V1, pattern = ",")), length))
+
+all.cus <- nrow(cus) 
+
+basket <- cus[,]
+
+basket$ASR_PRODUCT_BOOKING_DTM <- NULL
+basket$PASSENGER_ID   <- NULL
+
+colnames(basket) <- c("itemList")
+
+basket.filter <- dplyr::filter(basket, grepl(",",itemList))
+
+write.csv(basket.filter,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", quote = FALSE, row.names = TRUE)
+
+library(arules)
+
+# Convert csv file to basket format
+txn = read.transactions(file = "C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/itemList.alweb.csv", rm.duplicates= FALSE, format = "basket",sep = ",", cols = 1);
+
+# Run apriori algorithm
+basket_rules <- apriori(txn,parameter = list(minlen = 2, sup = 0.001, conf = 0.05, target = "rules"))
+
+# Check if tm is attched; if yes then detach
+if(sessionInfo()['basePkgs'] =="tm" | sessionInfo()['otherPkgs']=="tm"){
+  detach(package:sentiment, unload=TRUE)
+  detach(package:tm, unload=TRUE)
+}
+
+# Convert to datframe and view; optional
+df_basket <- as(basket_rules,"data.frame")
+df_basket$confidence <- df_basket$confidence * 100
+df_basket$expected.confidence <- df_basket$confidence/df_basket$lift
+
+df_basket$rules <- gsub("_", " ",df_basket$rules)
+df_basket$rules <- gsub(",", " ",df_basket$rules)
+df_basket$rules <- gsub('Call Center','CallCenter',df_basket$rules) 
+df_basket$rules <- gsub("[[:punct:]]", "", df_basket$rules)
+df_basket$rules <- gsub(' +',' ',df_basket$rules) 
+
+df_basket <- df_basket %>%  separate(rules, into = c("Rule 1", "Channel 1", "Rule 2", "Channel 2", "Rule 3", "Channel 3"), sep = " ", extra = "drop")
+
+tbl_vars(pcp.tran.level.al.query)
+prod_name <- pcp.tran.level.al.query %>% 
+  select(COMPONENT_CODE, COMPONENT_NAME) %>% 
+  group_by(COMPONENT_CODE, COMPONENT_NAME) %>% 
+  summarise(NROW = n())
+
+prod_name$COMPONENT_NAME <- gsub("[[:punct:]]", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub("[][!#$%()*,.:;<=>@^_`|~.{}]", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub("[[:digit:]]+", "", prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- lapply(prod_name$COMPONENT_NAME, toupper)
+prod_name$COMPONENT_NAME <- trimws(prod_name$COMPONENT_NAME)
+prod_name$COMPONENT_NAME <- gsub(' +',' ',prod_name$COMPONENT_NAME) 
+
+prod_name_pack <- pcp.tran.level.al.pack.query %>% 
+  select(PACKAGE_CODE, COMPONENT_NAME) %>% 
+  group_by(PACKAGE_CODE, COMPONENT_NAME) %>% 
+  summarise(NROW = n())
+
+prod_name_pack$COMPONENT_NAME <- gsub("[[:punct:]]", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- gsub("[][!#$%()*,.:;<=>@^_`|~.{}]", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- gsub("[[:digit:]]+", "", prod_name_pack$COMPONENT_NAME)
+prod_name_pack$COMPONENT_NAME <- lapply(prod_name_pack$COMPONENT_NAME, toupper)
+prod_name_pack$COMPONENT_NAME <- gsub(' +',' ',prod_name_pack$COMPONENT_NAME) 
+prod_name_pack$COMPONENT_NAME <- trimws(prod_name_pack$COMPONENT_NAME)
+
+prod_name_pack <- prod_name_pack[,c(1,2)]
+prod_name <- prod_name[,c(1,2)]
+colnames(prod_name_pack) <- c("PROD_CODE", "PROD_NAME")
+colnames(prod_name) <- c("PROD_CODE", "PROD_NAME")
+
+prod_name_pack <- as.data.frame(prod_name_pack)
+prod_name <- as.data.frame(prod_name)
+prod_name_detail <- rbind(prod_name_pack, prod_name)
+
+df_rules<- df_basket %>% 
+  left_join(prod_name_detail, by = c("Rule 1"= "PROD_CODE"))
+  
+df_rules<- df_rules %>% 
+  left_join(prod_name_detail, by = c("Rule 2"= "PROD_CODE"))
+
+df_rules<- df_rules %>% 
+  left_join(prod_name_detail, by = c("Rule 3"= "PROD_CODE"))
+
+tbl_vars(df_rules)
+
+colnames(df_rules) <- c("PROD_CODE.A", "CHANNEL.A", "PROD_CODE.B", "CHANNEL.B", "PROD_CODE.C", "CHANNEL.C", "SUPPORT", "CONFIDENCE", "LIFT", "COUNT_TRANS", "EXPECTED_CONFIDENCE", "PROD_NAME.A", "PROD_NAME.B", "PROD_NAME.C")
+
+
+write.csv(df_rules,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/df_rules_allchannel_prod-pack_west.csv", quote = FALSE, row.names = TRUE)
+```
+
